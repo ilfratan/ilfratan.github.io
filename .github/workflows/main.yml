@@ -137,9 +137,88 @@ jobs:
               print(f'No se pudo consultar pagina de autor: {exc}. Se mantienen las notas existentes.')
               candidatos = {}
 
+          def firma_y_bajada_verificadas(url):
+              """Solo incorporar notas con firma personal comprobable en la propia nota."""
+              from bs4 import NavigableString
+              try:
+                  respuesta = sesion.get(url, timeout=18)
+                  respuesta.raise_for_status()
+                  pagina_nota = BeautifulSoup(respuesta.text, 'html.parser')
+              except requests.RequestException as exc:
+                  print(f'Se omite sin confirmar autor: {url} ({exc})')
+                  return False, ''
+
+              nombre = 'fernando fratantoni'
+              cabecera = pagina_nota.find('h1')
+              firma_visible = False
+              if cabecera:
+                  fragmentos = []
+                  longitud = 0
+                  for nodo in cabecera.next_elements:
+                      if isinstance(nodo, NavigableString):
+                          linea = ' '.join(str(nodo).split())
+                          if linea:
+                              fragmentos.append(linea)
+                              longitud += len(linea) + 1
+                              if longitud >= 950:
+                                  break
+                  encabezado = ' '.join(fragmentos)
+                  firma_visible = bool(re.search(r'\bpor\s+fernando\s+fratantoni\b', encabezado, re.I))
+
+              firma_meta = False
+              for clave, valor in (('name', 'author'), ('property', 'article:author'),
+                                   ('name', 'parsely-author'), ('itemprop', 'author')):
+                  etiqueta = pagina_nota.find('meta', attrs={clave: valor})
+                  if etiqueta and etiqueta.get('content', '').strip().casefold() == nombre:
+                      firma_meta = True
+
+              firma_estructurada = False
+              for script in pagina_nota.find_all('script', type='application/ld+json'):
+                  try:
+                      datos = json.loads(script.string or script.get_text())
+                  except (ValueError, TypeError):
+                      continue
+                  pendientes = datos if isinstance(datos, list) else [datos]
+                  while pendientes:
+                      dato = pendientes.pop()
+                      if not isinstance(dato, dict):
+                          continue
+                      grafo = dato.get('@graph', [])
+                      if isinstance(grafo, list):
+                          pendientes.extend(grafo)
+                      tipo = dato.get('@type', [])
+                      tipos = [tipo] if isinstance(tipo, str) else tipo
+                      if not isinstance(tipos, list) or not any(
+                          t in ('Article', 'NewsArticle', 'BlogPosting') for t in tipos
+                      ):
+                          continue
+                      autores = dato.get('author', [])
+                      autores = autores if isinstance(autores, list) else [autores]
+                      for autor in autores:
+                          texto = autor.get('name', '') if isinstance(autor, dict) else autor
+                          if isinstance(texto, str) and texto.strip().casefold() == nombre:
+                              firma_estructurada = True
+
+              if not (firma_visible or firma_meta or firma_estructurada):
+                  print(f'Excluida por firma no confirmada: {url}')
+                  return False, ''
+
+              descripcion = ''
+              for clave in ('og:description', 'description', 'twitter:description'):
+                  etiqueta = pagina_nota.find('meta', attrs={'property': clave})
+                  if not etiqueta:
+                      etiqueta = pagina_nota.find('meta', attrs={'name': clave})
+                  if etiqueta and etiqueta.get('content'):
+                      descripcion = ' '.join(etiqueta['content'].split())
+                      break
+              return True, descripcion[:240]
+
           nuevas = 0
           for url, titulo in candidatos.items():
               if url in enlaces:
+                  continue
+              firma_valida, bajada = firma_y_bajada_verificadas(url)
+              if not firma_valida:
                   continue
               f, foto = metadatos(url)
               tarjeta = documento.new_tag('article', attrs={
@@ -153,7 +232,7 @@ jobs:
               h3.string = titulo
               tarjeta.append(h3)
               resumen = documento.new_tag('p')
-              resumen.string = 'Artículo de Fernando Fratantoni.'
+              resumen.string = bajada or 'Una nota publicada en Rolling Stone Argentina.'
               tarjeta.append(resumen)
               enlace = documento.new_tag('a', href=url, target='_blank', rel='noopener noreferrer')
               enlace.string = 'Leer nota original ↗'
