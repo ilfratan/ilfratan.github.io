@@ -1,0 +1,54 @@
+name: Guardar fotos del archivo en GitHub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'scripts/cache_story_images.py'
+      - '.github/workflows/cache-images.yml'
+  workflow_run:
+    workflows:
+      - Actualizar notas de Rolling Stone
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fotos-il-fratan
+  cancel-in-progress: false
+
+jobs:
+  descargar-fotos:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar archivos de IL FRATAN
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar bibliotecas de imágenes
+        run: python -m pip install requests beautifulsoup4 Pillow
+      - name: Guardar portadas en el repositorio
+        run: python scripts/cache_story_images.py
+      - name: Publicar miniaturas locales
+        shell: bash
+        run: |
+          if git diff --quiet -- index.html && [ -z "$(git ls-files --others --exclude-standard assets/covers)" ]; then
+            echo "Las fotos ya están almacenadas."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html assets/covers
+          git commit -m 'Guardar miniaturas de Rolling Stone en el propio sitio'
+          git pull --rebase origin main
+          git push origin main
