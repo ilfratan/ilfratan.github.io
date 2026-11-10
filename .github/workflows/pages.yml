@@ -7,6 +7,7 @@ on:
   workflow_run:
     workflows:
       - Actualizar notas de Rolling Stone
+      - Guardar fotos del archivo en GitHub
     types:
       - completed
 
