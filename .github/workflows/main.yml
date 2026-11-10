@@ -61,6 +61,14 @@ jobs:
                       pass
               return ''
 
+          def fecha_mostrar(iso):
+              if not re.fullmatch(r'(?:19|20)\d{2}-\d{2}-\d{2}', str(iso or '')):
+                  return 'Fecha sin confirmar'
+              anio, mes, dia = iso.split('-')
+              meses = ('ene', 'feb', 'mar', 'abr', 'may', 'jun',
+                       'jul', 'ago', 'sep', 'oct', 'nov', 'dic')
+              return f'{int(dia)} {meses[int(mes) - 1]} {anio}'
+
           def metadatos(url):
               try:
                   r = sesion.get(url, timeout=15)
@@ -226,7 +234,7 @@ jobs:
                   'data-search': titulo.lower(), 'data-date': f
               })
               meta = documento.new_tag('div', attrs={'class': 'story-meta'})
-              meta.string = 'ROLLING STONE · ' + (f if f else 'Fecha sin confirmar')
+              meta.string = 'ROLLING STONE · ' + fecha_mostrar(f)
               tarjeta.append(meta)
               h3 = documento.new_tag('h3')
               h3.string = titulo
@@ -271,6 +279,14 @@ jobs:
                   img['class'] = 'story-cover'
                   tarjeta.insert(0, img)
                   fotos += 1
+
+          # Fecha legible y uniforme para todo el archivo; data-date sigue en ISO para ordenar.
+          for tarjeta in tarjetas:
+              iso = tarjeta.get('data-date', '')
+              meta = tarjeta.find(class_='story-meta')
+              if meta and iso and re.fullmatch(r'(?:19|20)\d{2}-\d{2}-\d{2}', iso):
+                  meta.clear()
+                  meta.append('ROLLING STONE · ' + fecha_mostrar(iso))
 
           tarjetas.sort(key=lambda t: t.get('data-date', ''), reverse=True)
           contenido = '\n'.join(str(t) for t in tarjetas) + '\n'
